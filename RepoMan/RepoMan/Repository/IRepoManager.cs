@@ -1,21 +1,22 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Octokit;
-using RepoMan.PullRequest;
+using RepoMan.Repository.Clients;
+using RepoMan.Repository.Models;
+using PullRequest = RepoMan.Repository.Models.PullRequest;
 
 namespace RepoMan.Repository
 {
-    public interface IRepoManager
+    interface IRepoManager
     {
-        string RepoOwner { get; }
-        string RepoName { get; }
+        WatchedRepository Repository { get; }
         
         /// <summary>
         /// Check the upstream git repo API for any pull requests that the cache manager doesn't know about.
         /// </summary>
         /// <param name="stateFilter"></param>
         /// <returns></returns>
-        Task RefreshFromUpstreamAsync(ItemStateFilter stateFilter);
+        Task RefreshFromUpstreamAsync(PullRequestState stateFilter);
         
         /// <summary>
         /// Returns the number of pull requests in the cache that have been fully populated
@@ -24,13 +25,13 @@ namespace RepoMan.Repository
         ValueTask<int> GetPullRequestCount();
 
         /// <summary>
-        /// 
+        ///
         /// </summary>
         /// <param name="prNumber"></param>
         /// <returns>null if the pull request number is not present</returns>
-        ValueTask<PullRequestDetails> GetPullRequestByNumber(int prNumber);
+        ValueTask<PullRequest?> GetPullRequestByNumber(int prNumber);
 
-        ValueTask<IList<PullRequestDetails>> GetPullRequestsAsync();
+        ValueTask<IList<PullRequest>> GetPullRequestsAsync();
 
         /// <summary>
         /// Returns the comments on each PR

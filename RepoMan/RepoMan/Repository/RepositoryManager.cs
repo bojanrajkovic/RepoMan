@@ -4,9 +4,9 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Octokit;
 using RepoMan.IO;
-using RepoMan.PullRequest;
+using RepoMan.Repository.Clients;
+using RepoMan.Repository.Models;
 using Serilog;
 
 namespace RepoMan.Repository
@@ -15,30 +15,28 @@ namespace RepoMan.Repository
     /// Handles the cache management (both reading and writing) associated with historical repositories, since querying the GitHub API is slow, and rate-limited.
     /// Under the hood, many methods utilize SemaphoreSlim for read/write thread-safety, which is why many methods are async Tasks instead of values.
     /// </summary>
-    public class RepositoryManager :
+    class RepositoryManager :
         IRepoManager
     {
-        public string RepoOwner { get; }
-        public string RepoName { get; }
-        private readonly IRepoPullRequestReader _prReader;
+        public WatchedRepository Repository { get; }
+
+        private readonly IRepositoryClient _prReader;
         private readonly ICacheManager _cacheManager;
         private readonly TimeSpan _dosBuffer;
         private readonly ILogger _logger;
         
-        private readonly SemaphoreSlim _byNumberLock = new SemaphoreSlim(1, 1);
-        private readonly Dictionary<int, PullRequestDetails> _byNumber;
+        private readonly SemaphoreSlim _byNumberLock = new(1, 1);
+        private readonly Dictionary<int, PullRequest> _byNumber;
 
         private RepositoryManager(
-            string repoOwner,
-            string repoName,
-            IRepoPullRequestReader prReader,
+            WatchedRepository repository,
+            IRepositoryClient prReader,
             ICacheManager cacheManager,
             TimeSpan prApiDosBuffer,
-            Dictionary<int, PullRequestDetails> byNumber,
+            Dictionary<int, PullRequest> byNumber,
             ILogger logger)
         {
-            RepoOwner = repoOwner;
-            RepoName = repoName;
+            Repository = repository;
             _prReader = prReader;
             _cacheManager = cacheManager;
             _dosBuffer = prApiDosBuffer;
@@ -47,22 +45,16 @@ namespace RepoMan.Repository
         }
 
         public static async Task<IRepoManager> InitializeAsync(
-            string repoOwner,
-            string repoName,
-            IRepoPullRequestReader prReader,
+            WatchedRepository repository,
+            IRepositoryClient prReader,
             ICacheManager cacheManager,
             TimeSpan prApiDosBuffer,
             bool refreshFromUpstream,
             ILogger logger)
         {
-            if (string.IsNullOrWhiteSpace(repoOwner))
+            if (repository is null)
             {
-                throw new ArgumentNullException(nameof(repoOwner));
-            }
-            
-            if (string.IsNullOrWhiteSpace(repoName))
-            {
-                throw new ArgumentNullException(nameof(repoName));
+                throw new ArgumentNullException(nameof(repository));
             }
             
             if (prReader is null)
@@ -88,11 +80,11 @@ namespace RepoMan.Repository
             logger.Information("Initializing repository history manager cache");
             var timer = Stopwatch.StartNew();
 
-            IList<PullRequestDetails> prs = new List<PullRequestDetails>();
+            IList<PullRequest> prs = new List<PullRequest>();
             try
             {
                 logger.Information("Reading the cache");
-                prs = await cacheManager.LoadAsync(repoOwner, repoName);
+                prs = await cacheManager.LoadAsync(repository.Owner, repository.RepositoryName);
             }
             catch (Exception)
             {
@@ -102,7 +94,7 @@ namespace RepoMan.Repository
             timer.Stop();
             logger.Information($"Initialized the cache with {byNumber.Count:N0} pull requests in {timer.ElapsedMilliseconds:N0}ms");
             
-            var repoHistoryMgr = new RepositoryManager(repoName, repoOwner, prReader, cacheManager, prApiDosBuffer, byNumber, logger);
+            var repoHistoryMgr = new RepositoryManager(repository, prReader, cacheManager, prApiDosBuffer, byNumber, logger);
 
             if (!refreshFromUpstream)
             {
@@ -110,7 +102,7 @@ namespace RepoMan.Repository
             }
             
             // If there's nothing in the cache, go look for stuff.
-            await repoHistoryMgr.RefreshFromUpstreamAsync(ItemStateFilter.Closed);
+            await repoHistoryMgr.RefreshFromUpstreamAsync(PullRequestState.Closed);
             return repoHistoryMgr;
         }
 
@@ -118,10 +110,10 @@ namespace RepoMan.Repository
         /// </summary>
         /// <param name="stateFilter"></param>
         /// <returns></returns>
-        public async Task RefreshFromUpstreamAsync(ItemStateFilter stateFilter)
+        public async Task RefreshFromUpstreamAsync(PullRequestState stateFilter)
         {
-            var prs = await _prReader.GetPullRequestsRootAsync(stateFilter);
-            var unknownPrs = new List<PullRequestDetails>(prs.Count);            
+            var prs = await _prReader.GetAllPullRequestsAsync(Repository, stateFilter);
+            var unknownPrs = new List<PullRequest>(prs.Count());
             
             try
             {
@@ -150,7 +142,7 @@ namespace RepoMan.Repository
         /// </summary>
         /// <param name="prRoots"></param>
         /// <returns></returns>
-        private async ValueTask UpdateMemoryCacheAsync(List<PullRequestDetails> prRoots)
+        private async ValueTask UpdateMemoryCacheAsync(List<PullRequest> prRoots)
         {
             if (!prRoots.Any())
             {
@@ -173,7 +165,7 @@ namespace RepoMan.Repository
 
         private async ValueTask PersistCacheAsync()
         {
-            var updates = new List<PullRequestDetails>(_byNumber.Count);    // Dirty read is OK for minor GC optimization
+            var updates = new List<PullRequest>(_byNumber.Count);    // Dirty read is OK for minor GC optimization
             try
             {
                 await _byNumberLock.WaitAsync();
@@ -184,7 +176,7 @@ namespace RepoMan.Repository
                 _byNumberLock.Release();
             }
 
-            await _cacheManager.SaveAsync(updates, RepoOwner, RepoName);
+            await _cacheManager.SaveAsync(updates, Repository.Owner, Repository.RepositoryName);
         }
 
         /// <summary>
@@ -193,10 +185,10 @@ namespace RepoMan.Repository
         /// returned.
         /// </summary>
         /// <returns>The collection of fully-updated pull requests</returns>
-        private async ValueTask<List<PullRequestDetails>> PopulateCommentsAndApprovalsAsync(List<PullRequestDetails> unfinishedPrs)
+        private async ValueTask<List<PullRequest>> PopulateCommentsAndApprovalsAsync(List<PullRequest> unfinishedPrs)
         {
             _logger.Information($"{unfinishedPrs.Count:N0} pull requests with incomplete data to be populated");
-            var successfullyUpdatePrs = new List<PullRequestDetails>(unfinishedPrs.Count);
+            var successfullyUpdatePrs = new List<PullRequest>(unfinishedPrs.Count);
             
             foreach (var pr in unfinishedPrs)
             {
@@ -248,12 +240,12 @@ namespace RepoMan.Repository
                 _byNumberLock.Release();
             }
         }
-        
+
         /// <summary>
         /// </summary>
         /// <param name="prNumber"></param>
         /// <returns>Null if the pull request number is not found</returns>
-        public async ValueTask<PullRequestDetails> GetPullRequestByNumber(int prNumber)
+        public async ValueTask<PullRequest?> GetPullRequestByNumber(int prNumber)
         {
             try
             {
@@ -272,12 +264,12 @@ namespace RepoMan.Repository
         /// Thread-safe, lazy, non-copy read from the in-memory cache
         /// </summary>
         /// <returns></returns>
-        public async ValueTask<IList<PullRequestDetails>> GetPullRequestsAsync()
+        public async ValueTask<IList<PullRequest>> GetPullRequestsAsync()
         {
             try
             {
                 await _byNumberLock.WaitAsync();
-                var prs = new List<PullRequestDetails>(_byNumber.Count);
+                var prs = new List<PullRequest>(_byNumber.Count);
                 prs.AddRange(_byNumber.Values);
                 return prs;
             }

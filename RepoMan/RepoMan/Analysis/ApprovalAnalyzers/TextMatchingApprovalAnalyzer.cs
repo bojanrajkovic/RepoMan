@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using RepoMan.PullRequest;
+using RepoMan.Repository.Models;
 
 namespace RepoMan.Analysis.ApprovalAnalyzers
 {

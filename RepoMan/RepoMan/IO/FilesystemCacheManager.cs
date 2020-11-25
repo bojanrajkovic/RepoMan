@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
-using RepoMan.PullRequest;
+using RepoMan.Repository.Models;
 
 namespace RepoMan.IO
 {
-    public class FilesystemCacheManager :
+    class FilesystemCacheManager :
         ICacheManager
     {
         private readonly IFilesystem _fs;
@@ -29,18 +29,18 @@ namespace RepoMan.IO
             _jsonSerializerSettings = jsonSerializerSettings ?? throw new ArgumentNullException(nameof(jsonSerializerSettings));
         }
 
-        public async ValueTask SaveAsync(IList<PullRequestDetails> prDetails, string repoOwner, string repoName)
+        public async ValueTask SaveAsync(IList<PullRequest> prDetails, string repoOwner, string repoName)
         {
             var path = GetPullRequestDetailsPath(repoOwner, repoName);
             var json = JsonConvert.SerializeObject(prDetails, _jsonSerializerSettings);
             await _fs.FileWriteAllTextAsync(path, json);
         }
 
-        public async ValueTask<IList<PullRequestDetails>> LoadAsync(string repoOwner, string repoName)
+        public async ValueTask<IList<PullRequest>> LoadAsync(string repoOwner, string repoName)
         {
             var path = GetPullRequestDetailsPath(repoOwner, repoName);
             var json = await _fs.FileReadAllTextAsync(path);
-            return JsonConvert.DeserializeObject<List<PullRequestDetails>>(json, _jsonSerializerSettings);
+            return JsonConvert.DeserializeObject<List<PullRequest>>(json, _jsonSerializerSettings);
         }
 
         private string GetPullRequestDetailsPath(string repoOwner, string repoName)

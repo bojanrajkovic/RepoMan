@@ -1,17 +1,17 @@
 using System.Collections.Generic;
-using RepoMan.PullRequest;
+using RepoMan.Repository.Models;
 
 namespace RepoMan.Analysis
 {
-    public interface ICommentAnalyzer
+    interface ICommentAnalyzer
     {
-        PullRequestCommentSnapshot CalculateCommentStatistics(PullRequestDetails prDetails);
+        PullRequestCommentSnapshot CalculateCommentStatistics(PullRequest pr);
 
         /// <summary>
         /// Returns the list 
         /// </summary>
-        /// <param name="prDetails"></param>
+        /// <param name="pr"></param>
         /// <returns></returns>
-        IDictionary<string, List<Comment>> GetApprovals(PullRequestDetails prDetails);
+        IDictionary<string, List<Comment>> GetApprovals(PullRequest pr);
     }
 }

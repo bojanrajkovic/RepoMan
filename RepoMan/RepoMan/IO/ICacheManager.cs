@@ -1,12 +1,12 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using RepoMan.PullRequest;
+using RepoMan.Repository.Models;
 
 namespace RepoMan.IO
 {
-    public interface ICacheManager
+        interface ICacheManager
     {
-        ValueTask SaveAsync(IList<PullRequestDetails> prDetails, string repoOwner, string repoName);
-        ValueTask<IList<PullRequestDetails>> LoadAsync(string repoOwner, string repoName);
+        ValueTask SaveAsync(IList<PullRequest> prDetails, string repoOwner, string repoName);
+        ValueTask<IList<PullRequest>> LoadAsync(string repoOwner, string repoName);
     }
 }

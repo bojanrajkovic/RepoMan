@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 using RepoMan.Analysis.ApprovalAnalyzers;
-using RepoMan.PullRequest;
+using RepoMan.Repository.Models;
 
 namespace RepoMan.Analysis
 {
@@ -20,10 +20,10 @@ namespace RepoMan.Analysis
             _wordCounter = wordCounter ?? throw new ArgumentNullException(nameof(wordCounter));
         }
 
-        public PullRequestCommentSnapshot CalculateCommentStatistics(PullRequestDetails prDetails)
+        public PullRequestCommentSnapshot CalculateCommentStatistics(PullRequest pr)
         {
-            var approvals = GetApprovals(prDetails);
-            var nonEmptyComments = GetNonEmptyComments(prDetails);
+            var approvals = GetApprovals(pr);
+            var nonEmptyComments = GetNonEmptyComments(pr);
 
             var wordCounts = nonEmptyComments
                 .Select(c => _wordCounter.CountWords(c.Text))
@@ -33,9 +33,9 @@ namespace RepoMan.Analysis
             var snapshot = new PullRequestCommentSnapshot
             {
                 Timestamp = DateTimeOffset.UtcNow,
-                Number = prDetails.Number,
-                OpenedAt = prDetails.OpenedAt,
-                ClosedAt = prDetails.ClosedAt,
+                Number = pr.Number,
+                OpenedAt = pr.OpenedAt,
+                ClosedAt = pr.ClosedAt,
                 ApprovalCount = approvals.Count,
                 CommentCount = nonEmptyComments.Count,
                 CommentWordCount = wordCounts.Sum(),
@@ -44,9 +44,9 @@ namespace RepoMan.Analysis
             return snapshot;
         }
 
-        private List<Comment> GetNonEmptyComments(PullRequestDetails prDetails)
+        private List<Comment> GetNonEmptyComments(PullRequest pr)
         {
-            return prDetails.AllComments
+            return pr.AllComments
                 .Where(c => !string.IsNullOrWhiteSpace(c.Text))
                 .ToList();
         }
@@ -54,11 +54,11 @@ namespace RepoMan.Analysis
         /// <summary>
         /// Returns the list 
         /// </summary>
-        /// <param name="prDetails"></param>
+        /// <param name="pr"></param>
         /// <returns></returns>
-        public IDictionary<string, List<Comment>> GetApprovals(PullRequestDetails prDetails)
+        public IDictionary<string, List<Comment>> GetApprovals(PullRequest pr)
         {
-            return prDetails.ReviewComments
+            return pr.ReviewComments
                 .Where(rc => _approvalAnalyzer.IsApproved(rc))
                 .GroupBy(rc => rc.User.Login)
                 .ToDictionary(

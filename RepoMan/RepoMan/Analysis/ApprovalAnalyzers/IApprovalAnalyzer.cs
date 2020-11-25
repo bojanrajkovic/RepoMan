@@ -1,4 +1,4 @@
-using RepoMan.PullRequest;
+using RepoMan.Repository.Models;
 
 namespace RepoMan.Analysis.ApprovalAnalyzers
 {

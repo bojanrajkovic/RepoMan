@@ -15,19 +15,20 @@ using RepoMan.Analysis;
 using RepoMan.Analysis.ApprovalAnalyzers;
 using RepoMan.IO;
 using RepoMan.Repository;
+using RepoMan.Repository.Clients;
 using Serilog;
 
 namespace RepoMan
 {
     class Program
     {
-        private static readonly string _tokenPath = Path.Combine(GetScratchDirectory(), "repoman-pan.secret");
-        private static readonly string _configPath = Path.Combine(GetScratchDirectory(), "repoman-config.json");
-        private static readonly string _scratchDir = GetScratchDirectory();
-        private static readonly string _url = "https://github.com";
-        private static readonly string _token = File.ReadAllText(_tokenPath).Trim();
-        private static readonly JsonSerializerSettings _jsonSerializerSettings = GetDebugJsonSerializerSettings();
-        private static readonly ILogger _logger = GetLogger();
+        private static readonly string TokenPath = Path.Combine(GetScratchDirectory(), "repoman-pan.secret");
+        private static readonly string ConfigPath = Path.Combine(GetScratchDirectory(), "repoman-config.json");
+        private static readonly string ScratchDir = GetScratchDirectory();
+        private static readonly string Url = "https://github.com";
+        private static readonly string Token = File.ReadAllText(TokenPath).Trim();
+        private static readonly JsonSerializerSettings JsonSerializerSettings = GetDebugJsonSerializerSettings();
+        private static readonly ILogger Logger = GetLogger();
 
         static async Task Main(string[] args)
         {
@@ -35,7 +36,7 @@ namespace RepoMan
 
             var configuration = new ConfigurationBuilder()
                 .AddEnvironmentVariables()
-                .AddJsonFile(_configPath, optional: false, reloadOnChange: true)
+                .AddJsonFile(ConfigPath, optional: false, reloadOnChange: true)
                 .Build();
 
             var serviceCollection = new ServiceCollection()
@@ -43,6 +44,7 @@ namespace RepoMan
                     configuration.GetSection("PRConstants:GitHub"))
                 .Configure<PullRequestConstants>(RepositoryKind.BitBucket.ToString(),
                     configuration.GetSection("PRConstants:BitBucket"))
+                .Configure<RepositoryClientConfiguration>(configuration.GetSection("ClientConfiguration"))
                 .AddTransient(sp =>
                 {
                     var prConstantsAccessor = sp.GetRequiredService<IOptionsSnapshot<PullRequestConstants>>();
@@ -59,7 +61,7 @@ namespace RepoMan
                         prConstants.ExplicitApprovals,
                         prConstants.ExplicitNonApprovals,
                         prConstants.ImplicitApprovals);
-                });
+                }).AddTransient<RepositoryClientFactory>();
 
             var serviceProvider = serviceCollection.BuildServiceProvider();
 
@@ -68,7 +70,7 @@ namespace RepoMan
             var commentAnalyzer = new CommentAnalyzer(approvalAnalyzer, wordCounter);
             var repoHealthAnalyzer = new RepoHealthAnalyzer();
             var fs = new Filesystem();
-            var cacheManager = new FilesystemCacheManager(fs, _scratchDir, _jsonSerializerSettings);
+            var cacheManager = new FilesystemCacheManager(fs, ScratchDir, JsonSerializerSettings);
             var dosBuffer = TimeSpan.FromSeconds(0.1);
             
             var watchedRepos = GetWatchedRepositories()
@@ -77,40 +79,23 @@ namespace RepoMan
             var repoMgrInitializationQuery =
                 from kvp in watchedRepos
                 from repo in kvp
-                let client = GetClient(repo.BaseUrl, kvp.Key)
-                let prReader = new GitHubRepoPullRequestReader(repo.Owner, repo.RepositoryName, client)
+                let prReader = serviceProvider.GetRequiredService<RepositoryClientFactory>().GetRepositoryClient(repo)
                 select RepositoryManager.InitializeAsync(
-                    repo.Owner,
-                    repo.RepositoryName,
+                    repo,
                     prReader,
                     cacheManager,
                     dosBuffer,
                     refreshFromUpstream: true,
-                    _logger);
+                    Logger);
             var watcherInitializationTasks = repoMgrInitializationQuery.ToList();
             await Task.WhenAll(watcherInitializationTasks);
 
             var repoWorkers = watcherInitializationTasks
                 .Select(t => t.Result)
-                .Select(rm => new RepoWorker(rm, approvalAnalyzer, commentAnalyzer, wordCounter, repoHealthAnalyzer, _logger))
+                .Select(rm => new RepoWorker(rm, approvalAnalyzer, commentAnalyzer, wordCounter, repoHealthAnalyzer, Logger))
                 .ToList();
             
             // Create a BackgroundService with the collection of workers, and update the stats every 4 hours or so
-        }
-
-        /// <summary>
-        /// Clients are intended to be reused for each top-level URL. So you can re-use a github.com pull request reader for every repo at github.com.  
-        /// </summary>
-        /// <param name="repoUrl"></param>
-        /// <param name="token"></param>
-        /// <returns></returns>
-        private static GitHubClient GetClient(string repoUrl, string token)
-        {
-            var github = new Uri(repoUrl);
-            var client = new GitHubClient(new ProductHeaderValue("repoman-health-metrics"), github);
-            var auth = new Credentials(token);
-            client.Credentials = auth;
-            return client;
         }
 
         private static string GetScratchDirectory()
@@ -147,8 +132,6 @@ namespace RepoMan
             };
         }
 
-
-
         private static List<WatchedRepository> GetWatchedRepositories()
         {
             return new List<WatchedRepository>
@@ -158,7 +141,7 @@ namespace RepoMan
                     Owner = "alex",
                     RepositoryName = "nyt-2020-election-scraper",
                     Description = "NYT election data scraper and renderer",
-                    ApiToken = _token,
+                    ApiToken = Token,
                     BaseUrl = "https://github.com",
                     RepositoryKind = RepositoryKind.GitHub,
                 },
@@ -167,7 +150,7 @@ namespace RepoMan
                     Owner = "rianjs",
                     RepositoryName = "ical.net",
                     Description = "RFC-5545 ical data library",
-                    ApiToken = _token,
+                    ApiToken = Token,
                     BaseUrl = "https://github.com",
                     RepositoryKind = RepositoryKind.GitHub,
                 },

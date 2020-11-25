@@ -4,23 +4,13 @@ using System.Linq;
 using Newtonsoft.Json;
 using Octokit;
 
-namespace RepoMan.PullRequest
+namespace RepoMan.Repository.Models
 {
-    public class TargetRepository
+    class PullRequest
     {
-        public long Id { get; set; }
-        public string HtmlUrl { get; set; }
-        public string Name { get; set; }
-        public string Description { get; set; }
-        public DateTimeOffset CreatedAt { get; set; }
-        public DateTimeOffset UpdatedAt { get; set; }
-        public DateTimeOffset PushedAt { get; set; }
-        public long Size { get; set; }
-        public bool IsArchived { get; set; }
-    }
-    
-    public class PullRequestDetails
-    {
+        [JsonIgnore]
+        public WatchedRepository Repository { get; set; }
+
         public long Id { get; set; }
         public string HtmlUrl { get; set; }
         public int Number { get; set; }
@@ -57,9 +47,9 @@ namespace RepoMan.PullRequest
         
         public bool IsFullyInterrogated { get; set; }
         
-        public PullRequestDetails(){}
+        public PullRequest(){}
 
-        public PullRequestDetails(Octokit.PullRequest pullRequest)
+        public PullRequest(WatchedRepository repository, Octokit.PullRequest pullRequest)
         {
             if (pullRequest is null)
             {
@@ -67,6 +57,7 @@ namespace RepoMan.PullRequest
             }
             
             Id = pullRequest.Id;
+            Repository = repository;
             Number = pullRequest.Number;
             HtmlUrl = pullRequest.HtmlUrl;
             Submitter = new User
@@ -180,27 +171,5 @@ namespace RepoMan.PullRequest
         [JsonIgnore]
         public IEnumerable<Comment> AllComments
             => ReviewComments.Concat(DiffComments).Concat(CommitComments);
-    }
-
-    public class Comment
-    {
-        public long Id { get; set; }
-        public User User { get; set; }
-        public string HtmlUrl { get; set; }
-        public DateTimeOffset CreatedAt { get; set; }
-        public DateTimeOffset UpdatedAt { get; set; }
-        
-        /// <summary>
-        /// Null, unless the comment is associated with a review comment where someone has approved it, or requested changes or whatever
-        /// </summary>
-        public string ReviewState { get; set; }
-        public string Text { get; set; }
-    }
-
-    public class User
-    {
-        public long Id { get; set; }
-        public string Login { get; set; }
-        public string HtmlUrl { get; set; }
     }
 }

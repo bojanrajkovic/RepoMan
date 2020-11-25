@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using Octokit;
 using RepoMan.Analysis;
 using RepoMan.Analysis.ApprovalAnalyzers;
-using RepoMan.PullRequest;
+using RepoMan.Repository.Clients;
 using Serilog;
 
 namespace RepoMan.Repository
@@ -30,7 +30,7 @@ namespace RepoMan.Repository
             ILogger logger)
         {
             _repo = repo ?? throw new ArgumentNullException(nameof(repo));
-            _fullName = $"{repo.RepoOwner}:{repo.RepoName}";
+            _fullName = $"{repo.Repository.Owner}:{repo.Repository.RepositoryName}";
             _approvalAnalyzer = approvalAnalyzer ?? throw new ArgumentNullException(nameof(approvalAnalyzer));
             _commentAnalyzer = commentAnalyzer ?? throw new ArgumentNullException(nameof(commentAnalyzer));
             _wordCounter = wordCounter ?? throw new ArgumentNullException(nameof(wordCounter));
@@ -44,7 +44,7 @@ namespace RepoMan.Repository
             var timer = Stopwatch.StartNew();
             
             // TODO: Refresh from upstream first
-            await _repo.RefreshFromUpstreamAsync(ItemStateFilter.Closed);
+            await _repo.RefreshFromUpstreamAsync(PullRequestState.Closed);
             var pullRequestSnapshots = await _repo.GetPullRequestsAsync();
 
             _logger.Information($"{_fullName} comment analysis starting for {pullRequestSnapshots.Count:N0} pull requests");
